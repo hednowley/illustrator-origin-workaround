@@ -1,6 +1,6 @@
 # Radial gradient origin workaround for Adobe Illustrator Extendscript API
 
-The Ilustrator Extendscript API only provides the origins of radial gradiants as an integer coordinate - these functions let you get these origins to unlimited decimal precision.
+The Ilustrator Extendscript API only provides the origins of radial gradiants as an integer coordinates - these functions let you get the origins to unlimited decimal precision.
 
 ## Usage
 
