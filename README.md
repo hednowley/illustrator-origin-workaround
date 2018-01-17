@@ -21,7 +21,7 @@ var origins = getRadialGradientOrigins([{
 {
     pathItem: p2,
     colorPropertyName: "fillColor"
-}]p, 3);
+}], 3);
 // returns [[455.768938567,456.567849567],[4364.565859, 6.3733303]]
 ```
 
