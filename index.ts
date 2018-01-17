@@ -9,6 +9,9 @@ function getRadialGradientOrigin(pathItem: PathItem, colorPropertyName: string, 
 // Returns an array of origins mapping to the gradient array paramater.
 function getRadialGradientOrigins(gradients: GradientInfo[], decimalAccuracy: number) {
 
+    // Taking advantage of the fact that Illustrator's integer coordinate is rounded from the exact one,
+    // this translates the parent path by diminishing amounts and uses a binary search to work out the exact origin.
+
     var tempLayer = activeDocument.layers.add();
 
     var copies: {
@@ -43,8 +46,8 @@ function getRadialGradientOrigins(gradients: GradientInfo[], decimalAccuracy: nu
             workingPathItem = <PathItem>pathItemCopy;
         }
 
-        // Transformations don't behave intuitively on origins with negative X or y.
-        // Hence make both positive now and revert any changes to the sign later.
+        // Illustrator rounds negative coords down and positive ones up.
+        // To make life simple, make X and Y positive now and revert any changes to the sign later.
         var x: number = workingPathItem[gradient.colorPropertyName].origin[0];
         var xFactor: number;
         if (x < 0) {
