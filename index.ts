@@ -1,31 +1,7 @@
 ﻿/// <reference types="types-for-adobe/illustrator/2015.3"/>
 
-type myObject = {
-    type: string;
-    angle: number;
-    length: number;
-    origin: number[];
-    hiliteAngle: number;
-    hiliteLength: number;
-    matrix: {
-        A: number;
-        B: number;
-        C: number;
-        D: number;
-        TX: number;
-        TY: number;
-    };
-    gradient: {
-        type: string;
-        color: any;
-        midPoint: number[];
-        rampPoint: number[];
-    }
-}
-
 type GradientInfo = {
-    parentPathItem: PathItem;
-    colorProp: string; // Name of colour property
+    colorPropertyName: string; // Name of colour property
     pathItem: PathItem;
 }
 
@@ -67,9 +43,8 @@ var processPageItem = (item: PageItem) => {
 var processColourItem = (colour: Color, property: string, pathItem: PathItem) => {
     if (colour instanceof GradientColor) {
         gradients.push({
-            colorProp: property,
-            pathItem: pathItem,
-            parentPathItem: null
+            colorPropertyName: property,
+            pathItem: pathItem
         });
     }
 }
@@ -80,64 +55,92 @@ for (let i = 0; i < layerCount; i++) {
     processLayer(activeDocument.layers[i]);
 }
 
-for (var g of gradients) {
-    processRadialGradient(g, 6);
+var origins = processRadialGradients(gradients, 10);
+
+for (var o of origins) {
+    alert("Found origin: (" + o[0] + ", " + o[1] + ")");
+}
+
+
+// Use a binary search to get the radial gradient origin to a specified precision.
+function processRadialGradient(pathItem: PathItem, colorPropertyName: string, decimalAccuracy: number) {
+    return processRadialGradients([{ pathItem: pathItem, colorPropertyName: colorPropertyName}], decimalAccuracy)[0];
 }
 
 // Use a binary search to find radial gradient origins to a specified precision.
-// Should be run once per document for performance and to avoid strange path translation issues. 
-function processRadialGradient(gradientInfo: GradientInfo, decimalAccuracy: number) {
-    var gradientWrapper = gradientInfo;
+// Returns an array of origins mapping to the gradient array paramater.
+function processRadialGradients(gradients: GradientInfo[], decimalAccuracy: number) {
 
     var tempLayer = activeDocument.layers.add();
 
-    var pathItem = gradientWrapper.pathItem;
-    var pathItemCopy = pathItem.duplicate(tempLayer, null) as PathItem|CompoundPathItem;
-    pathItemCopy.hidden = true;
+    var copies: {
+        pathItem: PathItem | CompoundPathItem; // Copy of the item with the colour gradient
+        observablePathItem: PathItem, // Usually same as pathItem unless it's a compound path
+        colorProp: string; // Name of the property with the colour gradient (i.e. stroke or fill)
+        x0: number;
+        xLower: number;
+        xUpper: number;
+        xFactor: number; // Scale factor to deal with negative X
+        y0: number;
+        yLower: number;
+        yUpper: number;
+        yFactor: number; // Scale factor to deal with negative Y
+        dX: number; // Net path transformation in X
+        dY: number; // Net path transformation in Y
+    }[] = [];
 
-    var workingPathItem: PathItem;
+    for (var gradient of gradients) {
+        var pathItem = gradient.pathItem;
 
-    // If this is a compound path item, then we use it for transformations but read gradient origins from one of its children
-    if (pathItemCopy.typename == "CompoundPathItem") {
-        var c = <CompoundPathItem>pathItemCopy
-        workingPathItem = (<CompoundPathItem>pathItemCopy).pathItems[0]
-    } else {
-        workingPathItem = <PathItem>pathItemCopy;
+        // Make a copy of the parent item
+        var pathItemCopy = pathItem.duplicate(tempLayer, null) as PathItem|CompoundPathItem;
+        pathItemCopy.hidden = true;
+
+        // If this is a compound path item then we use it for transformations but read gradient origins from one of its children
+        var workingPathItem: PathItem;
+        if (pathItemCopy.typename == "CompoundPathItem") {
+            var c = <CompoundPathItem>pathItemCopy
+            workingPathItem = (<CompoundPathItem>pathItemCopy).pathItems[0]
+        } else {
+            workingPathItem = <PathItem>pathItemCopy;
+        }
+
+        // Transformations don't behave intuitively on origins with negative X or y.
+        // Hence make both positive now and revert any changes to the sign later.
+        var x: number = workingPathItem[gradient.colorPropertyName].origin[0];
+        var xFactor: number;
+        if (x < 0) {
+            x = -x;
+            xFactor = -1;
+        } else {
+            xFactor = 1;
+        }
+
+        var y: number = workingPathItem[gradient.colorPropertyName].origin[1];
+        var yFactor: number;
+        if (y < 0) {
+            y = -y;
+            yFactor = -1;
+        } else {
+            yFactor = 1;
+        }
+
+        copies.push({
+            pathItem: pathItemCopy,
+            observablePathItem: workingPathItem,
+            colorProp: gradient.colorPropertyName,
+            x0: x,
+            xLower: x,
+            xUpper: x + 1,
+            xFactor: xFactor,
+            y0: y,
+            yLower: y,
+            yUpper: y + 1,
+            yFactor: yFactor,
+            dX: 0,
+            dY: 0
+        });
     }
-
-    var x: number = workingPathItem[gradientWrapper.colorProp].origin[0];
-    var xFactor: number;
-    if (x < 0) {
-        x = -x;
-        xFactor = -1;
-    } else {
-        xFactor = 1;
-    }
-
-    var y: number = workingPathItem[gradientWrapper.colorProp].origin[1];
-    var yFactor: number;
-    if (y < 0) {
-        y = -y;
-        yFactor = -1;
-    } else {
-        yFactor = 1;
-    }
-
-    var copy = {
-        pathItem: pathItemCopy,
-        workingPathItem: workingPathItem,
-        colorProp: gradientWrapper.colorProp,
-        x0: x,
-        xLower: x,
-        xUpper: x + 1,
-        xFactor: xFactor,
-        y0: y,
-        yLower: y,
-        yUpper: y + 1,
-        yFactor: yFactor,
-        dX: 0,
-        dY: 0
-    };
 
     var xCentre = 1;
     var yCentre = 1;
@@ -146,54 +149,65 @@ function processRadialGradient(gradientInfo: GradientInfo, decimalAccuracy: numb
     var min = Math.pow(0.1, decimalAccuracy)
     while (range > min) {
 
-        // Translate bounds to make them symmetric around the next integer
-        var xDiff = xCentre - (copy.xUpper + copy.xLower) * 0.5;
-        copy.xLower += xDiff;
-        copy.xUpper += xDiff;
+        for (var copy of copies) {
 
-        var yDiff = yCentre - (copy.yUpper + copy.yLower) * 0.5;
-        copy.yLower += yDiff;
-        copy.yUpper += yDiff;
+            // Translate bounds to make them symmetric around the next integer
+            var xDiff = xCentre - (copy.xUpper + copy.xLower) * 0.5;
+            copy.xLower += xDiff;
+            copy.xUpper += xDiff;
 
-        // Translate the path item by half the width of the error bounds.
-        // We can then see from the rounded-down integer whether our point lies in the upper or lower half of the bounds.
-        copy.pathItem.translate(copy.xFactor * xDiff, copy.yFactor * yDiff, true, true, true, true);
+            var yDiff = yCentre - (copy.yUpper + copy.yLower) * 0.5;
+            copy.yLower += yDiff;
+            copy.yUpper += yDiff;
 
-        // Keep track of the total shifting we've done so we can work back to the original point later
-        copy.dX += xDiff;
-        copy.dY += yDiff;
+            // Translate the path item by half the width of the error bounds.
+            // We can then see from the rounded-down integer whether our point lies in the upper or lower half of the bounds.
+            copy.pathItem.translate(copy.xFactor * xDiff, copy.yFactor * yDiff, true, true, true, true);
+
+            // Keep track of the total shifting we've done so we can work back to the original point later
+            copy.dX += xDiff;
+            copy.dY += yDiff;
+        }
 
         app.redraw();
 
-        var xNew = copy.xFactor * copy.workingPathItem[copy.colorProp].origin[0];
-        var yNew = copy.yFactor * copy.workingPathItem[copy.colorProp].origin[1];
+        for (var copy of copies) {
 
-        if (xNew === xCentre) {
-            // We know x lies in the upper half of the bound
-            copy.xLower = xCentre;
-        } else if (xNew === xCentre - 1) {
-            // We know x lies in the lower half of the bound
-            copy.xUpper = xCentre;
-        } else {
-            return;
-        }
+            var xNew = copy.xFactor * copy.observablePathItem[copy.colorProp].origin[0];
+            var yNew = copy.yFactor * copy.observablePathItem[copy.colorProp].origin[1];
 
-        if (yNew === yCentre) {
-            // We know y lies in the upper half of the bound
-            copy.yLower = yCentre;
-        } else if (yNew === yCentre - 1) {
-            // We know y lies in the lower half of the bound
-            copy.yUpper = yCentre;
-        } else {
-            return;
+            if (xNew === xCentre) {
+                // We know x lies in the upper half of the bound
+                copy.xLower = xCentre;
+            } else if (xNew === xCentre - 1) {
+                // We know x lies in the lower half of the bound
+                copy.xUpper = xCentre;
+            } else {
+                return;
+            }
+
+            if (yNew === yCentre) {
+                // We know y lies in the upper half of the bound
+                copy.yLower = yCentre;
+            } else if (yNew === yCentre - 1) {
+                // We know y lies in the lower half of the bound
+                copy.yUpper = yCentre;
+            } else {
+                return;
+            }
         }
 
         range = range * 0.5;
     }
 
-    var newOrigin = [copy.xFactor * (copy.xLower - copy.dX), copy.yFactor * (copy.yLower - copy.dY)];
-    alert("Found origin: (" + newOrigin[0] + ", " + newOrigin[1] + ")");
+    var origins: number[][] = [];
+
+    for (var copy of copies) {
+        origins.push([copy.xFactor * (copy.xLower - copy.dX), copy.yFactor * (copy.yLower - copy.dY)]);
+    }
 
     tempLayer.remove();
     app.redraw();
+
+    return origins;
 }
