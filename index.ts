@@ -1,75 +1,13 @@
-﻿/// <reference types="types-for-adobe/illustrator/2015.3"/>
+/// <reference types="types-for-adobe/illustrator/2015.3"/>
 
-type GradientInfo = {
-    colorPropertyName: string; // Name of colour property
-    pathItem: PathItem;
+// Get the radial gradient origin to a specified decimal precision.
+function getRadialGradientOrigin(pathItem: PathItem, colorPropertyName: string, decimalAccuracy: number) {
+    return getRadialGradientOrigins([{ pathItem: pathItem, colorPropertyName: colorPropertyName}], decimalAccuracy)[0];
 }
 
-const gradients: GradientInfo[] = [];
-
-var processLayer = (layer: Layer) => {
-
-    var pageItemCount = layer.pageItems.length;
-    for (let i = 0; i < pageItemCount; i++) {
-        processPageItem(layer.pageItems[i]);
-    }
-
-    var layerCount = layer.layers.length;
-    for (let i = 0; i < layerCount; i++) {
-        processLayer(layer.layers[i]);
-    }
-}
-
-var processPageItem = (item: PageItem) => {
-
-    var type = item.typename;
-    switch (type) {
-        case 'CompoundPathItem':
-            let compoundItem = <CompoundPathItem>item;
-            var pathItemsCount = compoundItem.pathItems.length;
-            for (let i = 0; i < pathItemsCount; i++) {
-                processPageItem(compoundItem.pathItems[i])
-            }
-            break;
-
-        case 'PathItem':
-            let pathItem = <PathItem>item;
-            processColourItem(pathItem.strokeColor, "strokeColor", pathItem);
-            processColourItem(pathItem.fillColor, "fillColor", pathItem);
-            break;
-    }
-}
-
-var processColourItem = (colour: Color, property: string, pathItem: PathItem) => {
-    if (colour instanceof GradientColor) {
-        gradients.push({
-            colorPropertyName: property,
-            pathItem: pathItem
-        });
-    }
-}
-
-const activeDocument = app.activeDocument;
-const layerCount = activeDocument.layers.length;
-for (let i = 0; i < layerCount; i++) {
-    processLayer(activeDocument.layers[i]);
-}
-
-var origins = processRadialGradients(gradients, 10);
-
-for (var o of origins) {
-    alert("Found origin: (" + o[0] + ", " + o[1] + ")");
-}
-
-
-// Use a binary search to get the radial gradient origin to a specified precision.
-function processRadialGradient(pathItem: PathItem, colorPropertyName: string, decimalAccuracy: number) {
-    return processRadialGradients([{ pathItem: pathItem, colorPropertyName: colorPropertyName}], decimalAccuracy)[0];
-}
-
-// Use a binary search to find radial gradient origins to a specified precision.
+// Get the radial gradient origins to a specified decimal precision.
 // Returns an array of origins mapping to the gradient array paramater.
-function processRadialGradients(gradients: GradientInfo[], decimalAccuracy: number) {
+function getRadialGradientOrigins(gradients: GradientInfo[], decimalAccuracy: number) {
 
     var tempLayer = activeDocument.layers.add();
 
